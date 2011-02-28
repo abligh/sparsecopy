@@ -1,0 +1,66 @@
+#!/usr/bin/make -f
+export DH_VERBOSE=15
+TARGET = $(CURDIR)/debian/sparsecopy
+BINARY_PACKAGES = -psparsecopy
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	touch configure-stamp
+
+build: build-stamp
+build-stamp: configure-stamp 
+	dh_testdir
+	make all
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp
+	rm -rf $(TARGET) $(TARGET)-data
+	make clean
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k 
+	dh_installdirs
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_install ${BINARY_PACKAGES}
+	dh_installchangelogs ${BINARY_PACKAGES}
+	dh_installdocs ${BINARY_PACKAGES}
+	dh_strip ${BINARY_PACKAGES}
+	dh_fixperms ${BINARY_PACKAGES}
+	dh_installman ${BINARY_PACKAGES}
+	dh_installdeb ${BINARY_PACKAGES}
+	dh_perl ${BINARY_PACKAGES}
+	dh_shlibdeps ${BINARY_PACKAGES}
+	dh_lintian ${BINARY_PACKAGES}
+	dh_compress ${BINARY_PACKAGES}
+	dh_gencontrol ${BINARY_PACKAGES}
+	dh_md5sums ${BINARY_PACKAGES}
+	dh_builddeb ${BINARY_PACKAGES}
+
+binary-indep: build install
+	dh_testdir
+	dh_testroot
+	dh_install ${INDEP_PACKAGES}
+	dh_installchangelogs ${INDEP_PACKAGES}
+	dh_installdocs ${INDEP_PACKAGES}
+	dh_fixperms ${INDEP_PACKAGES}
+	dh_installman ${INDEP_PACKAGES}
+	dh_installdeb ${INDEP_PACKAGES}
+	dh_lintian ${INDEP_PACKAGES}
+	dh_shlibdeps ${INDEP_PACKAGES}
+	dh_compress ${INDEP_PACKAGES}
+	dh_gencontrol ${INDEP_PACKAGES}
+	dh_md5sums ${INDEP_PACKAGES}
+	dh_builddeb ${INDEP_PACKAGES}
+
+binary: binary-arch binary-indep
+.PHONY: build clean binary-arch binary-indep binary install configure

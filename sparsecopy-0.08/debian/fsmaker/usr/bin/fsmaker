@@ -1,0 +1,191 @@
+#!/usr/bin/perl
+
+# fsmaker
+# (c) 2010 Flexiant Ltd
+# This file is released under the GPL v2
+# 
+
+use strict;
+use warnings;
+use Getopt::Long;
+use File::Temp qw/ tempfile tempdir /;
+use File::Copy;
+use File::Spec;
+use POSIX;
+
+my $version="0.05";
+
+sub syntax
+{
+    print STDERR "fsmaker v$version (c) 2010 Flexiant Limited\n\n";
+    print STDERR "Usage: fsmaker [options] ROOTIMAGE OUTPUTIMAGE\n\n";
+    print STDERR "Options:\n\n";
+    print STDERR "  -k KERNEL, --kernel KERNEL       Use KERNEL as boot kernel (vmlinuz)\n";
+    print STDERR "  -i INITRD, --initrd INITRD       Use INITRD as boot initrd (initrd.img)\n";
+    print STDERR "  -s SIZE, --size SIZE             Use a total image size of SIZE (any spare\n";
+    print STDERR "                                   space is used for a data partition)\n";
+    print STDERR "  -b SIZE, --bootsize SIZE         Make boot partition size SIZE\n";
+    print STDERR "  -t TYPE, --type TYPE             Use filing system type TYPE for spare partition\n";
+    print STDERR "  -d BOOTDIR, --bootdir DIR        Use BOOTDIR as default boot directory\n";
+    print STDERR "  -g GRUBHDR, --grubheader GRUBHDR Use GRUBHDR as default grub header\n";
+    print STDERR "  -h, --help                       Print this message\n";
+    print STDERR "\n";
+    return;   
+}
+
+my $fsmakerdir="/usr/share/fsmaker"; # NB make install replaces this
+my $sparsecopy="/usr/bin/sparsecopy"; # NB make insall replaces this
+
+my $option_bootdir=$fsmakerdir."/boot.default";
+my $option_kernel=$option_bootdir."/vmlinuz-2.6.32-19-server";
+my $option_initrd=$option_bootdir."/initrd.img-2.6.32-19-server";
+my $option_grubheader=$option_bootdir."/grubheader";
+my $option_disksize = "64M";
+my $option_bootsize = "64M";
+my $option_type = "ext3";
+
+sub getsize
+{
+    my $size = shift @_;
+    $size =~ /^\s*(\d+)([a-zA-Z]*)\s*$/;
+    my $num = $1+0;
+    my $unit = lc($2);
+    return $num * 512 if ($unit eq "");
+    return $num * (1<< 0) if ($unit eq "b");
+    return $num * (1<<10) if ($unit eq "k");
+    return $num * (1<<20) if ($unit eq "m");
+    return $num * (1<<30) if ($unit eq "g");
+    return $num * (1<<40) if ($unit eq "t");
+    return $num * (1<<50) if ($unit eq "p");
+    return $num * (1<<60) if ($unit eq "e");
+    return 0;
+}
+
+sub sizetocyls
+{
+    # We assume 63 cyls, 255 heads, 512 byte sectors, so 8225280 bytes per sector
+    # Now we calculate the number of cylinders, and the number of blocks we need
+    # We also assume 9 initial cylinders (alter this if you alter fsdisk layout
+    # We also ensure the number of blocks is divisible by 4.
+    my $s = shift @_;
+    my $k = 63*255*512; # size of a cylinder
+    $s |= 4095; # Set bottom bits to ensure we can fit a whole last page
+    return ceil($s/$k);
+}
+
+sub cylstosize
+{
+    return (shift @_) * 63 * 255 * 512;
+}
+
+if (!GetOptions (
+         "help|h" => sub { syntax(); exit(0); },
+         "kernel|k=s" => \$option_kernel,
+         "initrd|i=s" => \$option_initrd,
+         "size|s=s" => \$option_disksize,
+         "type|t=s" => \$option_type,
+         "bootsize|b=s" => \$option_bootsize,
+         "bootdir|b=s" => \$option_bootdir,
+         "grubheader|g=s" => \$option_grubheader
+    ))
+{
+    syntax();
+    die "Bad options";
+}
+
+if ($#ARGV!=1)
+{
+    syntax();
+    die "Bad options";
+}
+
+my $rootimage = $ARGV[0];
+my $output = $ARGV[1];
+
+$option_bootsize = getsize($option_bootsize);
+$option_disksize = getsize($option_disksize);
+
+my $tempdir = tempdir( CLEANUP => 1);
+
+#dircopy ($option_bootdir, $tempdir."/boot.d") || die "Can't copy boot directory";
+system("cp","-a",$option_bootdir, $tempdir."/boot.d")==0 || die "Can't copy boot directory";
+copy ($option_kernel, $tempdir."/boot.d/vmlinuz") || die "Can't copy kernel";
+copy ($option_initrd, $tempdir."/boot.d/initrd.img") || die "Can't copy initrd";
+
+# Now work out the disk geometry, in physical terms
+# Cylinder 0 contains the partition table etc.
+# Cylinder 1 onwards contains the boot partition (partition 3)
+# Next we have the root partition (partition 1)
+# Next we have the spare partition (partition 2)
+
+my $bootcyls = sizetocyls($option_bootsize);
+my $rootsize = -s $rootimage;
+my $rootcyls = sizetocyls($rootsize);
+my $usedcyls = 1+$bootcyls+$rootcyls;
+my $diskcyls = sizetocyls($option_disksize);
+$diskcyls=$usedcyls+1 if ($usedcyls+1>$diskcyls);
+my $disksize = cylstosize($diskcyls);
+my $sparecyls = $diskcyls-$usedcyls;
+my $sparesize = cylstosize($sparecyls);
+
+# Next we make a blank file (sparse) and partition it
+system($sparsecopy,"-q","-f",$disksize."b","-m","0","/dev/null",$output)==0 || die ("Can't create blank disk");
+# Put grub etc. on first
+print STDERR "Copying grub\n";
+system($sparsecopy,"-o",$option_grubheader,$output)==0 || die ("Can't copy grub");
+# Now run sfdisk to create the image
+open(SFDISK,"|sfdisk -q $output -C$diskcyls -S63 -H255") || die ("Can't run sfdisk");
+# printf SFDISK "%d,,L\n%d,%d,S\n1,%d,L\n",1+$swapcyls+$bootcyls,$bootcyls+1,$swapcyls,$bootcyls;
+printf SFDISK "%d,%d,L\n",1+$bootcyls,$rootcyls;
+printf SFDISK "%d,%d,L\n",1+$bootcyls+$rootcyls,$sparecyls;
+printf SFDISK "1,%d,L\n",$bootcyls;
+close SFDISK;
+
+# As we don't trust sfdisk to create the partitions where we think it is going to create them (sigh) we run it again
+# to capture the output
+open(SFDISK,"sfdisk -q -d $output -uS -C$diskcyls -S63 -H255|") || die ("Can't run sfdisk");
+
+my @partstart;
+my @partsize;
+my @partnames=qw( Root Spare Boot );
+while(<SFDISK>)
+{
+    chomp;
+    if (/start=\s*(\d+), size=\s*(\d+),/)
+    {
+	# The partition starts and ends are in 512 byte blocks
+	push @partstart, $1;
+	push @partsize, $2;
+
+    }
+}
+close(SFDISK);
+
+my $p;
+for ($p=0; $p<=2; $p++)
+{
+    printf "%s partition starts at block %d, size %d 512 byte blocks, %d MB\n",$partnames[$p],$partstart[$p],$partsize[$p],$partsize[$p]/2048;
+}
+
+# Now we make a boot filing system
+# Unhelpfully, genext2fs thinks a block is 1k long
+system("genext2fs","-z","-q","-e","0","-d",$tempdir."/boot.d","-b",floor($partsize[2]/2),$tempdir."/boot.img")==0 || die "Can't make boot file system";
+
+# Now we make a swap file
+system($sparsecopy,"-q","-b","512b","-f",$partsize[1],"/dev/null",$tempdir."/spare.img")==0 || die "Can't make swap partition";
+#system("mkswap","-f",$tempdir."/spare.img")==0 || die "mkswap failed";
+system("mkfs","-t",$option_type,"-F",$tempdir."/spare.img")==0 || die "mkfs failed";
+
+# Now we copy all three images on
+my @partsource;
+push @partsource, $rootimage;
+push @partsource, $tempdir."/spare.img";
+push @partsource, $tempdir."/boot.img";
+
+for ($p=2; $p>=0; $p--)
+{
+    printf "Copying %s partition from %s, starts at block %d, size %d blocks, %d MB\n",$partnames[$p],$partsource[$p],$partstart[$p],$partsize[$p],$partsize[$p]/2048;
+    my $size = -s ($partsource[$p]);
+    die "Image for partition too large" if ($size > $partsize[$p] * 512);
+    system($sparsecopy,"-o","-b","512b","-s",$partstart[$p],$partsource[$p],$output)==0 || die "Failed to copy partition";
+}

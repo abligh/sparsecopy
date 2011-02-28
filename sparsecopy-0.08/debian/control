@@ -1,0 +1,12 @@
+Source: sparsecopy
+Section: utils
+Priority: optional
+Maintainer: Alex Bligh <alex@flexiant.com>
+Build-Depends: debhelper (>= 5)
+Standards-Version: 3.8.3
+Homepage: http://www.flexiant.com/
+
+Package: sparsecopy
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Flexiant tools for sparse blockdevice manipulation

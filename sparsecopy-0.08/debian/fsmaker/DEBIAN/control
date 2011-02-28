@@ -1,0 +1,13 @@
+Package: fsmaker
+Version: 0.06
+Architecture: amd64
+Maintainer: Paul Sladen <sladen@19inch.net>
+Installed-Size: 60
+Depends: libc6 (>= 2.4), perl
+Recommends: fsmaker-data
+Section: utils
+Priority: optional
+Homepage: http://www.flexiant.com/
+Description: Flexiant/Extility virtual image tools for grid computing
+ Includes handy tools for converting EC2 AMI filesystem images and
+ tools for sparse blockdevice manipulation.

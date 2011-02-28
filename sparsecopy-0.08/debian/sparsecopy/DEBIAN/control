@@ -1,0 +1,10 @@
+Package: sparsecopy
+Version: 0.08
+Architecture: amd64
+Maintainer: Alex Bligh <alex@flexiant.com>
+Installed-Size: 64
+Depends: libc6 (>= 2.4)
+Section: utils
+Priority: optional
+Homepage: http://www.flexiant.com/
+Description: Flexiant tools for sparse blockdevice manipulation
