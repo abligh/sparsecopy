@@ -286,7 +286,7 @@ void parse_command_line(int argc, char **argv)
     }
 
   if (-1 == (dest = open(argv[optind+1],
-			 (nocheck_flag?O_WRONLY:O_RDWR)|
+			 ((check_flag || !nocheck_flag)?O_RDWR:O_WRONLY)|
 			 O_CREAT|
 			 (truncate_flag?O_TRUNC:0),
 			 0666
