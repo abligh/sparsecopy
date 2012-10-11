@@ -38,6 +38,7 @@ static off_t blocksize = 512;
 static off_t finalsize = 0;
 static off_t seekpos = 0;
 static off_t maxwrite = -1;
+static off_t syncevery = -1;
 static int source;
 static int dest;
 static off_t origdestextent;
@@ -50,7 +51,7 @@ static long long int real=0, sparse=0, nonzerodest=0, total=0, towrite=0;
 void usage()
 {
   fprintf(stderr,"\
-sparsecopy v0.09\n\
+sparsecopy v0.10\n\
 \n\
 Usage:\n\
      sparsecopy [OPTIONS] SOURCE DEST\n\
@@ -65,6 +66,7 @@ Options:\n\
      -f, --finalsize SIZE   Set size of DEST to SIZE when done (no effect on block devices)\n\
      -c, --check            Check the first block in the destination is zero, else abort\n\
      -p, --progress         Display progress indicator on stderr\n\
+     -y, --syncevery SIZE   Issue an fdatasync() every SIZE byets\n\
      -h, --help             Display usage\n\
 \n\
 Sparsecopy copies from a source file (either sparse or non-sparse) to a destination file\n\
@@ -131,6 +133,7 @@ void parse_command_line(int argc, char **argv)
   char * blocksize_arg=NULL;
   char * seekpos_arg=NULL;
   char * finalsize_arg=NULL;
+  char * syncevery_arg=NULL;
   
   while (1)
     {
@@ -146,13 +149,14 @@ void parse_command_line(int argc, char **argv)
 	  {"blocksize", required_argument, 0, 'b'},
 	  {"seek",      required_argument, 0, 's'},
 	  {"finalsize", required_argument, 0, 'f'},
+	  {"syncevery", required_argument, 0, 'y'},
 	  {0, 0, 0, 0}
 	};
       /* getopt_long stores the option index here. */
       int option_index = 0;
       int c;
       
-      c = getopt_long (argc, argv, "onqcphm:b:s:f:",
+      c = getopt_long (argc, argv, "onqcphm:b:s:f:y:",
 		       long_options, &option_index);
       
       /* Detect the end of the options. */
@@ -207,6 +211,10 @@ void parse_command_line(int argc, char **argv)
 	  maxwrite_arg = strdup(optarg);
 	  break;
 	  
+	case 'y':
+	  syncevery_arg = strdup(optarg);
+	  break;
+	  
 	default:
 	  usage();
 	  exit(1);
@@ -257,6 +265,17 @@ void parse_command_line(int argc, char **argv)
 	  exit(1);
 	}
       free(maxwrite_arg);
+    }
+
+  if (syncevery_arg)
+    {
+      syncevery = getsize(syncevery_arg);
+      if (syncevery<0)
+	{
+	  fprintf(stderr,"sparsecopy: Bad sync %lld\n",(long long int)syncevery);
+	  exit(1);
+	}
+      free(syncevery_arg);
     }
 
   /* Check we have exactly 2 remaining parameters */
@@ -330,6 +349,7 @@ void dosparsecopy(const int source, const int dest)
 {
   char *zero, *incoming, *check;
   size_t available;
+  size_t writtensincesync = 0;
   int skipwrite;
   double lastpercent = -1.0;
 
@@ -442,6 +462,12 @@ void dosparsecopy(const int source, const int dest)
 	      exit(9);
 	    }
 	  real += available;
+	  writtensincesync += available;
+	  if ((syncevery >0) && (writtensincesync >= syncevery))
+	    {
+	      fdatasync(dest); /* ignore errors */
+	      writtensincesync = 0;
+	    }
 	}
 
       total = real + sparse;
