@@ -33,7 +33,8 @@ static int nocheck_flag = 0;
 static int quiet_flag = 0;
 static int finalsize_flag = 0;
 static int check_flag = 0;
-static int progress_flag=0;
+static int progress_flag = 0;
+static int errorremainder_flag =0;
 static off_t blocksize = 512;
 static off_t finalsize = 0;
 static off_t seekpos = 0;
@@ -61,6 +62,7 @@ Options:\n\
      -n, --nocheck          Skip blank check\n\
      -q, --quiet            Quiet\n\
      -m, --max SIZE         Copy SIZE bytes maximum from SOURCE\n\
+     -e, --errorremainder   Error if there is more to write beyond --max value\n\
      -b, --blocksize SIZE   Use SIZE blocksize in bytes (default 512)\n\
      -s, --seek POS         Start writing SOURCE at position POS in DEST\n\
      -f, --finalsize SIZE   Set size of DEST to SIZE when done (no effect on block devices)\n\
@@ -145,6 +147,7 @@ void parse_command_line(int argc, char **argv)
 	  {"check",     no_argument,       0, 'c'},
 	  {"progress",  no_argument,       0, 'p'},
 	  {"help",      no_argument,       0, 'h'},
+	  {"errorremainder", no_argument,  0, 'e'},
 	  {"maxwrite",  required_argument, 0, 'm'},
 	  {"blocksize", required_argument, 0, 'b'},
 	  {"seek",      required_argument, 0, 's'},
@@ -156,7 +159,7 @@ void parse_command_line(int argc, char **argv)
       int option_index = 0;
       int c;
       
-      c = getopt_long (argc, argv, "onqcphm:b:s:f:y:",
+      c = getopt_long (argc, argv, "onqcphem:b:s:f:y:",
 		       long_options, &option_index);
       
       /* Detect the end of the options. */
@@ -193,6 +196,10 @@ void parse_command_line(int argc, char **argv)
 	case 'h':
 	  usage();
 	  exit(0);
+	  break;
+
+	case 'e':
+	  errorremainder_flag = 1;
 	  break;
 	  
 	case 'b':
@@ -504,6 +511,16 @@ void dosparsecopy(const int source, const int dest)
     }
   if (progress_flag)
     fprintf(stderr, "\n");
+  
+  if ((maxwrite == 0) && errorremainder_flag)
+    {
+      available = read(source, incoming, 1);
+      if (available)
+	{
+	  fprintf (stderr, "More data supplied than maximum permissible\n");
+	  exit (12);
+	}
+    }
   
 }
 
