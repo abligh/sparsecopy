@@ -5,7 +5,7 @@ BINDIR=${PREFIX}/bin
 
 all: sparsecopy
 sparsecopy: sparsecopy.c
-	$(CC) -lm -o $@ $<
+	$(CC) -o $@ $< -lm
 
 clean:
 	/bin/rm -f *.o *~ sparsecopy
